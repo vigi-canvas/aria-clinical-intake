@@ -1,4 +1,6 @@
 service_account.json
+service-account.json
+*service*account*.json
 .env
 __pycache__/
 *.pyc
@@ -8,3 +10,5 @@ venv/
 *.egg-info/
 dist/
 .DS_Store
+DEMO_SCRIPT.md
+IMPLEMENTATION.md
