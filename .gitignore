@@ -2,5 +2,9 @@ service-account.json
 .env
 __pycache__/
 .pytest_cache/
+.DS_Store
+venv/
+.venv/
+.claude/
 DEMO_SCRIPT.md
 IMPLEMENTATION.md
