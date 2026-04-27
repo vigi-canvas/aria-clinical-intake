@@ -1,56 +1,6 @@
-# ── Credentials & secrets ──────────────────────────────────────────────────────
-# Environment files (never commit real env — only .env.example is safe)
-.env
-.env.*
-!.env.example
-
-# Google / GCP service account and credential files
-service_account.json
 service-account.json
-*service*account*.json
-credentials.json
-*credentials*.json
-google-credentials.json
-gcp-*.json
-firebase*.json
-application_default_credentials.json
-
-# Generic secret file patterns
-*secret*.json
-*secret*.yaml
-*secret*.yml
-*.key
-*.pem
-*.p12
-*.pfx
-*.keystore
-*.jks
-
-# AWS
-.aws/
-aws-credentials*
-
-# ── Python ─────────────────────────────────────────────────────────────────────
+.env
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
 .pytest_cache/
-.mypy_cache/
-.ruff_cache/
-*.egg-info/
-dist/
-build/
-.venv/
-venv/
-env/
-*.egg
-
-# ── OS ─────────────────────────────────────────────────────────────────────────
-.DS_Store
-Thumbs.db
-
-# ── Project-specific docs (local only) ─────────────────────────────────────────
 DEMO_SCRIPT.md
 IMPLEMENTATION.md
