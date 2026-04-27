@@ -1,0 +1,10 @@
+service_account.json
+.env
+__pycache__/
+*.pyc
+.pytest_cache/
+.venv/
+venv/
+*.egg-info/
+dist/
+.DS_Store

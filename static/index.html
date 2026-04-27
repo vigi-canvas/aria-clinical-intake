@@ -1,0 +1,1392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Aria — Clinical Intake</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0f1117;
+      --surface: #1a1d27;
+      --surface2: #222536;
+      --border: #2e3249;
+      --accent: #6c8af7;
+      --accent-dim: #3d4f8a;
+      --green: #4caf80;
+      --green-dim: #1e4d36;
+      --amber: #f5a623;
+      --amber-dim: #4d3610;
+      --red: #e55353;
+      --red-dim: #4d1e1e;
+      --text: #e8eaf6;
+      --text-dim: #7880a4;
+      --text-muted: #4a5072;
+      --agent-bg: #1e2540;
+      --patient-bg: #1a2e1e;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 18px;
+      font-weight: 700;
+      letter-spacing: -0.3px;
+    }
+
+    .logo-icon {
+      width: 32px;
+      height: 32px;
+      background: linear-gradient(135deg, var(--accent), #a06cf5);
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+
+    .phase-badge {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 6px 14px;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      transition: all 0.3s ease;
+    }
+
+    .phase-badge.active {
+      border-color: var(--accent-dim);
+      color: var(--accent);
+      background: rgba(108, 138, 247, 0.08);
+    }
+
+    /* ── Main layout ── */
+    .main {
+      display: grid;
+      grid-template-columns: 1fr 420px;
+      gap: 0;
+      flex: 1;
+      min-height: 0;
+    }
+
+    @media (max-width: 900px) {
+      .main { grid-template-columns: 1fr; }
+      .right-panel { border-left: none; border-top: 1px solid var(--border); }
+    }
+
+    /* ── Left: transcript ── */
+    .left-panel {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    .session-controls {
+      padding: 20px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 20px;
+      border-radius: var(--radius-sm);
+      border: none;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      outline: none;
+    }
+
+    .btn:active { transform: scale(0.97); }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
+
+    .btn-primary {
+      background: var(--accent);
+      color: #fff;
+    }
+    .btn-primary:hover:not(:disabled) { background: #8097f9; }
+
+    .btn-danger {
+      background: var(--red-dim);
+      color: var(--red);
+      border: 1px solid rgba(229, 83, 83, 0.3);
+    }
+    .btn-danger:hover:not(:disabled) { background: #5d2222; }
+
+    .btn-secondary {
+      background: var(--surface2);
+      color: var(--text-dim);
+      border: 1px solid var(--border);
+    }
+    .btn-secondary:hover:not(:disabled) { background: #2a2f47; color: var(--text); }
+
+    /* ── Status indicator ── */
+    .status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 4px 0;
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--text-muted);
+      transition: background 0.3s;
+      flex-shrink: 0;
+    }
+
+    .status-dot.listening { background: var(--green); animation: pulse 1.5s infinite; }
+    .status-dot.speaking { background: var(--accent); animation: pulse 0.8s infinite; }
+    .status-dot.thinking { background: var(--amber); animation: pulse 1s infinite; }
+    .status-dot.error { background: var(--red); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.3; }
+    }
+
+    .status-text {
+      font-size: 13px;
+      color: var(--text-dim);
+    }
+
+    /* ── Waveform ── */
+    .waveform {
+      display: flex;
+      align-items: center;
+      gap: 3px;
+      height: 20px;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .waveform.active { opacity: 1; }
+    .waveform span {
+      display: block;
+      width: 3px;
+      background: var(--accent);
+      border-radius: 2px;
+      animation: wave 0.8s ease-in-out infinite;
+    }
+    .waveform span:nth-child(1) { animation-delay: 0s; }
+    .waveform span:nth-child(2) { animation-delay: 0.1s; }
+    .waveform span:nth-child(3) { animation-delay: 0.2s; }
+    .waveform span:nth-child(4) { animation-delay: 0.1s; }
+    .waveform span:nth-child(5) { animation-delay: 0s; }
+
+    @keyframes wave {
+      0%, 100% { height: 4px; }
+      50% { height: 16px; }
+    }
+
+    /* ── Transcript ── */
+    .transcript-wrap {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+      scroll-behavior: smooth;
+    }
+
+    .transcript-empty {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      text-align: center;
+      color: var(--text-muted);
+      gap: 12px;
+    }
+
+    .transcript-empty-icon {
+      font-size: 40px;
+      opacity: 0.5;
+    }
+
+    .turn {
+      margin-bottom: 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      animation: fadeSlideIn 0.2s ease;
+    }
+
+    @keyframes fadeSlideIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    .turn-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+    }
+
+    .turn-label.agent { color: var(--accent); }
+    .turn-label.patient { color: var(--green); }
+
+    .turn-bubble {
+      padding: 12px 16px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      line-height: 1.6;
+      max-width: 85%;
+    }
+
+    .turn-bubble.agent {
+      background: var(--agent-bg);
+      border: 1px solid var(--accent-dim);
+      align-self: flex-start;
+    }
+
+    .turn-bubble.patient {
+      background: var(--patient-bg);
+      border: 1px solid rgba(76, 175, 128, 0.3);
+      align-self: flex-end;
+    }
+
+    .turn-time {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ── Right panel ── */
+    .right-panel {
+      border-left: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--surface);
+    }
+
+    .panel-header {
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .panel-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+    }
+
+    /* ── Progress tracker ── */
+    .progress-steps {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 24px;
+    }
+
+    .step {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 8px 12px;
+      border-radius: var(--radius-sm);
+      transition: all 0.2s;
+    }
+
+    .step.done {
+      background: rgba(76, 175, 128, 0.08);
+    }
+
+    .step.current {
+      background: rgba(108, 138, 247, 0.1);
+      border: 1px solid var(--accent-dim);
+    }
+
+    .step-dot {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 10px;
+      flex-shrink: 0;
+      transition: all 0.3s;
+    }
+
+    .step.done .step-dot {
+      background: var(--green);
+      border-color: var(--green);
+      color: #fff;
+    }
+
+    .step.current .step-dot {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+      animation: pulse 1.5s infinite;
+    }
+
+    .step-name {
+      font-size: 13px;
+      font-weight: 600;
+      color: var(--text-dim);
+    }
+
+    .step.done .step-name { color: var(--text); }
+    .step.current .step-name { color: var(--accent); }
+
+    .step-desc {
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+
+    /* ── HPI live tracker ── */
+    .hpi-tracker {
+      margin-bottom: 20px;
+    }
+
+    .section-title {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 10px;
+    }
+
+    .field-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 13px;
+    }
+
+    .field-row:last-child { border-bottom: none; }
+
+    .field-status {
+      font-size: 12px;
+      flex-shrink: 0;
+      margin-top: 1px;
+    }
+
+    .field-name {
+      font-weight: 600;
+      color: var(--text-dim);
+      min-width: 90px;
+      flex-shrink: 0;
+      text-transform: capitalize;
+    }
+
+    .field-value {
+      color: var(--text);
+      flex: 1;
+    }
+
+    .field-value.missing { color: var(--text-muted); font-style: italic; }
+    .field-value.na { color: var(--text-muted); }
+
+    /* ── Clinical Brief ── */
+    .brief-section {
+      display: none;
+    }
+
+    .brief-section.visible {
+      display: block;
+    }
+
+    .brief-generating {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 16px;
+      background: rgba(108, 138, 247, 0.08);
+      border: 1px solid var(--accent-dim);
+      border-radius: var(--radius-sm);
+      font-size: 13px;
+      color: var(--accent);
+    }
+
+    .spinner {
+      width: 16px;
+      height: 16px;
+      border: 2px solid var(--accent-dim);
+      border-top-color: var(--accent);
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+      flex-shrink: 0;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .brief-card {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      margin-bottom: 16px;
+    }
+
+    .brief-card-header {
+      padding: 12px 16px;
+      background: rgba(255,255,255,0.03);
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.8px;
+      text-transform: uppercase;
+      color: var(--text-dim);
+    }
+
+    .brief-card-body {
+      padding: 16px;
+    }
+
+    .brief-field {
+      margin-bottom: 12px;
+    }
+
+    .brief-field:last-child { margin-bottom: 0; }
+
+    .brief-field-label {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .brief-field-value {
+      font-size: 14px;
+      color: var(--text);
+      line-height: 1.5;
+    }
+
+    .hpi-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+
+    .hpi-table tr { border-bottom: 1px solid var(--border); }
+    .hpi-table tr:last-child { border-bottom: none; }
+
+    .hpi-table td {
+      padding: 8px 10px;
+      vertical-align: top;
+      line-height: 1.5;
+    }
+
+    .hpi-table td:first-child {
+      font-weight: 600;
+      color: var(--text-dim);
+      white-space: nowrap;
+      padding-right: 16px;
+      text-transform: capitalize;
+    }
+
+    .hpi-table td:last-child { color: var(--text); }
+
+    .hpi-table td.null-value { color: var(--text-muted); font-style: italic; }
+
+    .ros-system {
+      margin-bottom: 12px;
+    }
+
+    .ros-system-name {
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: capitalize;
+      letter-spacing: 0.3px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+    }
+
+    .ros-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+    }
+
+    .ros-tag {
+      padding: 3px 9px;
+      border-radius: 20px;
+      font-size: 12px;
+      font-weight: 500;
+    }
+
+    .ros-tag.positive {
+      background: rgba(76, 175, 128, 0.12);
+      color: var(--green);
+      border: 1px solid rgba(76, 175, 128, 0.25);
+    }
+
+    .ros-tag.negative {
+      background: rgba(255,255,255,0.04);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    .narrative-text {
+      font-size: 14px;
+      line-height: 1.7;
+      color: var(--text);
+      font-style: italic;
+      padding: 12px 16px;
+      background: rgba(108, 138, 247, 0.05);
+      border-left: 3px solid var(--accent);
+      border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+    }
+
+    .flag-item {
+      display: flex;
+      align-items: flex-start;
+      gap: 8px;
+      padding: 10px 12px;
+      background: rgba(245, 166, 35, 0.08);
+      border: 1px solid rgba(245, 166, 35, 0.25);
+      border-radius: var(--radius-sm);
+      margin-bottom: 6px;
+      font-size: 13px;
+      color: var(--amber);
+    }
+
+    .flag-icon { flex-shrink: 0; }
+
+    .brief-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    details {
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      overflow: hidden;
+    }
+
+    details summary {
+      padding: 10px 14px;
+      cursor: pointer;
+      font-size: 12px;
+      font-weight: 600;
+      color: var(--text-dim);
+      user-select: none;
+      list-style: none;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface2);
+    }
+
+    details summary::after {
+      content: '▶';
+      font-size: 10px;
+      transition: transform 0.2s;
+    }
+
+    details[open] summary::after { transform: rotate(90deg); }
+
+    .json-block {
+      background: #0d0f17;
+      padding: 16px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #a8b4d4;
+      overflow-x: auto;
+      white-space: pre;
+    }
+
+    /* ── Error toast ── */
+    .toast {
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--red-dim);
+      border: 1px solid rgba(229, 83, 83, 0.4);
+      color: var(--red);
+      padding: 14px 18px;
+      border-radius: var(--radius-sm);
+      font-size: 14px;
+      max-width: 360px;
+      z-index: 1000;
+      animation: slideUp 0.2s ease;
+      display: none;
+    }
+
+    .toast.visible { display: block; }
+
+    @keyframes slideUp {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+  </style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">
+    <div class="logo-icon">🩺</div>
+    <span>Aria <span style="color:var(--text-dim);font-weight:400;">Clinical Intake</span></span>
+  </div>
+  <div class="phase-badge" id="phaseBadge">Not started</div>
+</header>
+
+<!-- Main layout -->
+<div class="main">
+
+  <!-- Left: controls + transcript -->
+  <div class="left-panel">
+
+    <div class="session-controls">
+      <button class="btn btn-primary" id="btnStart" onclick="startSession()">
+        ▶ Start Session
+      </button>
+      <button class="btn btn-danger" id="btnEnd" onclick="endSession()" disabled>
+        ■ End Session
+      </button>
+      <div class="status-bar">
+        <div class="status-dot" id="statusDot"></div>
+        <span class="status-text" id="statusText">Ready to start</span>
+        <div class="waveform" id="waveform">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="transcript-wrap" id="transcriptWrap">
+      <div class="transcript-empty" id="transcriptEmpty">
+        <div class="transcript-empty-icon">🎙️</div>
+        <div style="font-size:15px;font-weight:600;color:var(--text-dim)">Session not started</div>
+        <div style="font-size:13px;color:var(--text-muted)">Click "Start Session" to begin your intake interview with Aria</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Right: progress + brief -->
+  <div class="right-panel">
+    <div class="panel-header">
+      <span>Intake Progress</span>
+    </div>
+    <div class="panel-body" id="rightPanelBody">
+
+      <!-- Phase progress steps -->
+      <div class="progress-steps" id="progressSteps">
+        <div class="step" id="step-GREETING">
+          <div class="step-dot">1</div>
+          <div>
+            <div class="step-name">Greeting</div>
+            <div class="step-desc">Patient identification</div>
+          </div>
+        </div>
+        <div class="step" id="step-CHIEF_COMPLAINT">
+          <div class="step-dot">2</div>
+          <div>
+            <div class="step-name">Chief Complaint</div>
+            <div class="step-desc">Reason for visit</div>
+          </div>
+        </div>
+        <div class="step" id="step-HPI">
+          <div class="step-dot">3</div>
+          <div>
+            <div class="step-name">History of Present Illness</div>
+            <div class="step-desc">OLDCARTS framework</div>
+          </div>
+        </div>
+        <div class="step" id="step-ROS">
+          <div class="step-dot">4</div>
+          <div>
+            <div class="step-name">Review of Systems</div>
+            <div class="step-desc">Pertinent systems</div>
+          </div>
+        </div>
+        <div class="step" id="step-CLOSING">
+          <div class="step-dot">5</div>
+          <div>
+            <div class="step-name">Closing</div>
+            <div class="step-desc">Wrap-up</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Live HPI tracker -->
+      <div class="hpi-tracker" id="hpiTracker" style="display:none">
+        <div class="section-title">OLDCARTS — Live</div>
+        <div id="hpiFields"></div>
+      </div>
+
+      <!-- Brief section (shown after session ends) -->
+      <div class="brief-section" id="briefSection">
+        <div class="brief-generating" id="briefGenerating" style="display:none">
+          <div class="spinner"></div>
+          Generating clinical brief…
+        </div>
+        <div id="briefContent"></div>
+      </div>
+
+    </div>
+  </div>
+
+</div>
+
+<!-- Error toast -->
+<div class="toast" id="errorToast"></div>
+
+<script>
+/* ════════════════════════════════════════════
+   State
+═══════════════════════════════════════════ */
+let ws = null;
+let audioCtx = null;         // capture context (16kHz)
+let playCtx = null;          // playback context (24kHz)
+let micStream = null;
+let scriptProcessor = null;
+let nextPlayTime = 0;        // scheduled playback cursor
+let currentPhase = null;
+let sessionActive = false;
+
+const PHASES = ['GREETING', 'CHIEF_COMPLAINT', 'HPI', 'ROS', 'CLOSING', 'DONE'];
+const PHASE_LABELS = {
+  GREETING: 'Greeting',
+  CHIEF_COMPLAINT: 'Chief Complaint',
+  HPI: 'HPI — OLDCARTS',
+  ROS: 'Review of Systems',
+  CLOSING: 'Closing',
+  DONE: 'Complete',
+};
+
+const OLDCARTS_LABELS = {
+  onset: 'Onset',
+  location: 'Location',
+  duration: 'Duration',
+  character: 'Character',
+  aggravating: 'Aggravating',
+  alleviating: 'Alleviating',
+  radiation: 'Radiation',
+  timing: 'Timing',
+  severity: 'Severity',
+};
+
+let hpiState = {
+  onset: null, location: null, duration: null, character: null,
+  aggravating: null, alleviating: null, radiation: null, timing: null, severity: null,
+};
+
+/* ════════════════════════════════════════════
+   Session management
+═══════════════════════════════════════════ */
+async function startSession() {
+  // Request mic first
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+  } catch (err) {
+    showError('Microphone access is required. Please allow microphone access and try again.');
+    return;
+  }
+
+  document.getElementById('btnStart').disabled = true;
+  document.getElementById('btnEnd').disabled = false;
+  document.getElementById('transcriptEmpty').style.display = 'none';
+
+  setStatus('listening', 'Connecting…');
+  sessionActive = true;
+
+  // Reset HPI display
+  hpiState = { onset: null, location: null, duration: null, character: null,
+               aggravating: null, alleviating: null, radiation: null, timing: null, severity: null };
+
+  // WebSocket
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${proto}://${location.host}/ws/session`);
+  ws.binaryType = 'arraybuffer';
+
+  ws.onopen = () => {
+    setupMicCapture();
+  };
+
+  ws.onmessage = handleMessage;
+
+  ws.onerror = () => {
+    showError('Connection error. Please refresh and try again.');
+    setStatus('error', 'Connection error');
+  };
+
+  ws.onclose = () => {
+    if (sessionActive) {
+      setStatus('idle', 'Session ended');
+    }
+    teardownMic();
+    sessionActive = false;
+    document.getElementById('btnStart').disabled = false;
+    document.getElementById('btnEnd').disabled = true;
+  };
+}
+
+function endSession() {
+  if (ws) {
+    ws.close();
+  }
+  teardownMic();
+  sessionActive = false;
+  setStatus('idle', 'Session ended');
+  document.getElementById('btnStart').disabled = false;
+  document.getElementById('btnEnd').disabled = true;
+}
+
+/* ════════════════════════════════════════════
+   Mic capture → 16kHz PCM → WebSocket
+═══════════════════════════════════════════ */
+function setupMicCapture() {
+  // Create capture context at 16kHz so browser resamples for us
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+  const source = audioCtx.createMediaStreamSource(micStream);
+
+  scriptProcessor = audioCtx.createScriptProcessor(4096, 1, 1);
+  scriptProcessor.onaudioprocess = (e) => {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const pcm = floatTo16BitPCM(e.inputBuffer.getChannelData(0));
+      ws.send(pcm);
+    }
+  };
+
+  source.connect(scriptProcessor);
+  scriptProcessor.connect(audioCtx.destination);
+
+  // Separate playback context at 24kHz
+  playCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 24000 });
+  nextPlayTime = 0;
+}
+
+function teardownMic() {
+  if (scriptProcessor) { scriptProcessor.disconnect(); scriptProcessor = null; }
+  if (audioCtx) { audioCtx.close().catch(() => {}); audioCtx = null; }
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+  // Leave playCtx alive to finish playing queued audio
+}
+
+function floatTo16BitPCM(float32Array) {
+  const buffer = new ArrayBuffer(float32Array.length * 2);
+  const view = new DataView(buffer);
+  for (let i = 0; i < float32Array.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32Array[i]));
+    view.setInt16(i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+  }
+  return buffer;
+}
+
+/* ════════════════════════════════════════════
+   Audio playback — seamless queuing
+═══════════════════════════════════════════ */
+function playPCMAudio(base64Data) {
+  if (!playCtx) return;
+
+  const binary = atob(base64Data);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+  const int16 = new Int16Array(bytes.buffer);
+  const float32 = new Float32Array(int16.length);
+  for (let i = 0; i < int16.length; i++) float32[i] = int16[i] / 32768;
+
+  const audioBuffer = playCtx.createBuffer(1, float32.length, 24000);
+  audioBuffer.getChannelData(0).set(float32);
+
+  const src = playCtx.createBufferSource();
+  src.buffer = audioBuffer;
+  src.connect(playCtx.destination);
+
+  // Schedule for seamless back-to-back playback
+  const now = playCtx.currentTime;
+  const startAt = Math.max(now, nextPlayTime);
+  src.start(startAt);
+  nextPlayTime = startAt + audioBuffer.duration;
+}
+
+/* ════════════════════════════════════════════
+   WebSocket message handler
+═══════════════════════════════════════════ */
+function handleMessage(event) {
+  let msg;
+  try {
+    msg = JSON.parse(event.data);
+  } catch {
+    return;
+  }
+
+  switch (msg.type) {
+    case 'connected':
+      setStatus('listening', 'Listening…');
+      break;
+
+    case 'audio':
+      playPCMAudio(msg.data);
+      setStatus('speaking', 'Aria speaking…');
+      showWaveform(true);
+      break;
+
+    case 'transcript':
+      appendTranscript(msg.role, msg.text);
+      if (msg.role === 'patient') {
+        setStatus('thinking', 'Processing…');
+        showWaveform(false);
+      }
+      break;
+
+    case 'turn_complete':
+      setStatus('listening', 'Listening…');
+      showWaveform(false);
+      break;
+
+    case 'phase':
+      updatePhase(msg.phase);
+      break;
+
+    case 'state_update':
+      if (msg.hpi) updateHpiDisplay(msg.hpi);
+      break;
+
+    case 'brief_generating':
+      showBriefGenerating(true);
+      break;
+
+    case 'brief':
+      showBriefGenerating(false);
+      renderBrief(msg.data);
+      break;
+
+    case 'brief_error':
+      showBriefGenerating(false);
+      renderBriefError(msg.transcript);
+      break;
+
+    case 'error':
+      handleError(msg);
+      break;
+  }
+}
+
+function handleError(msg) {
+  if (msg.code === 'SESSION_DROPPED') {
+    showError('Connection to AI dropped. Please end and restart the session.');
+    setStatus('error', 'Session dropped');
+  } else if (msg.code === 'AUTH_MISSING') {
+    showError('Authentication error: ' + msg.message);
+    setStatus('error', 'Auth error');
+  } else {
+    showError(msg.message || 'An error occurred');
+    setStatus('error', 'Error');
+  }
+}
+
+/* ════════════════════════════════════════════
+   UI — Transcript
+═══════════════════════════════════════════ */
+function appendTranscript(role, text) {
+  const wrap = document.getElementById('transcriptWrap');
+  const turn = document.createElement('div');
+  turn.className = 'turn';
+
+  const now = new Date();
+  const timeStr = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+  turn.innerHTML = `
+    <div class="turn-label ${role}">${role === 'agent' ? 'ARIA' : 'PATIENT'}</div>
+    <div class="turn-bubble ${role}">${escapeHtml(text)}</div>
+    <div class="turn-time">${timeStr}</div>
+  `;
+
+  wrap.appendChild(turn);
+  wrap.scrollTop = wrap.scrollHeight;
+}
+
+/* ════════════════════════════════════════════
+   UI — Phase + Progress
+═══════════════════════════════════════════ */
+function updatePhase(phase) {
+  currentPhase = phase;
+  const badge = document.getElementById('phaseBadge');
+  badge.textContent = PHASE_LABELS[phase] || phase;
+  badge.className = 'phase-badge' + (phase !== 'DONE' && sessionActive ? ' active' : '');
+
+  const phaseOrder = ['GREETING', 'CHIEF_COMPLAINT', 'HPI', 'ROS', 'CLOSING', 'DONE'];
+  const currentIdx = phaseOrder.indexOf(phase);
+
+  phaseOrder.forEach((p, i) => {
+    const el = document.getElementById('step-' + p);
+    if (!el) return;
+    el.className = 'step';
+    const dot = el.querySelector('.step-dot');
+    if (i < currentIdx) {
+      el.classList.add('done');
+      dot.textContent = '✓';
+    } else if (i === currentIdx) {
+      el.classList.add('current');
+      dot.textContent = String(i + 1);
+    } else {
+      dot.textContent = String(i + 1);
+    }
+  });
+
+  // Show HPI tracker during HPI phase
+  const hpiTracker = document.getElementById('hpiTracker');
+  if (phase === 'HPI' || phase === 'ROS' || phase === 'CLOSING' || phase === 'DONE') {
+    hpiTracker.style.display = 'block';
+    renderHpiTracker();
+  }
+
+  // Show brief section when done
+  if (phase === 'DONE') {
+    document.getElementById('briefSection').classList.add('visible');
+  }
+}
+
+function renderHpiTracker() {
+  const container = document.getElementById('hpiFields');
+  container.innerHTML = '';
+  for (const [field, label] of Object.entries(OLDCARTS_LABELS)) {
+    const val = hpiState[field];
+    const row = document.createElement('div');
+    row.className = 'field-row';
+    row.id = 'hpi-row-' + field;
+
+    let statusIcon, valueClass, valueText;
+    if (val === null) {
+      statusIcon = '○';
+      valueClass = 'missing';
+      valueText = 'Not yet collected';
+    } else if (val === 'N/A') {
+      statusIcon = '—';
+      valueClass = 'na';
+      valueText = 'Not applicable';
+    } else {
+      statusIcon = '✓';
+      valueClass = '';
+      valueText = val;
+    }
+
+    row.innerHTML = `
+      <span class="field-status" style="color:${val ? (val === 'N/A' ? 'var(--text-muted)' : 'var(--green)') : 'var(--text-muted)'}">${statusIcon}</span>
+      <span class="field-name">${label}</span>
+      <span class="field-value ${valueClass}">${escapeHtml(valueText)}</span>
+    `;
+    container.appendChild(row);
+  }
+}
+
+function updateHpiDisplay(hpi) {
+  for (const [field, value] of Object.entries(hpi)) {
+    if (value !== null && value !== undefined) {
+      hpiState[field] = value;
+    }
+  }
+  if (document.getElementById('hpiTracker').style.display !== 'none') {
+    renderHpiTracker();
+  }
+}
+
+/* ════════════════════════════════════════════
+   UI — Clinical Brief
+═══════════════════════════════════════════ */
+function showBriefGenerating(show) {
+  document.getElementById('briefGenerating').style.display = show ? 'flex' : 'none';
+  if (show) {
+    document.getElementById('briefSection').classList.add('visible');
+    document.getElementById('rightPanelBody').scrollTop = 99999;
+  }
+}
+
+function renderBrief(data) {
+  const container = document.getElementById('briefContent');
+  container.innerHTML = '';
+
+  // Patient header
+  const header = document.createElement('div');
+  header.style.cssText = 'margin-bottom:16px;padding-bottom:16px;border-bottom:1px solid var(--border)';
+  header.innerHTML = `
+    <div style="font-size:18px;font-weight:700;margin-bottom:2px">${escapeHtml(data.patient_name || 'Unknown Patient')}</div>
+    <div style="font-size:12px;color:var(--text-muted)">Intake completed ${new Date().toLocaleString()}</div>
+  `;
+  container.appendChild(header);
+
+  // Action buttons
+  const actions = document.createElement('div');
+  actions.className = 'brief-actions';
+  actions.innerHTML = `
+    <button class="btn btn-secondary" onclick="printBrief()" style="font-size:12px;padding:7px 14px">⎙ Print</button>
+    <button class="btn btn-secondary" onclick="copyBriefJson()" style="font-size:12px;padding:7px 14px">⧉ Copy JSON</button>
+  `;
+  container.appendChild(actions);
+
+  // Flags (show first if any)
+  if (data.flags && data.flags.length > 0) {
+    const flagCard = makeCard('⚠ Clinical Flags');
+    data.flags.forEach(flag => {
+      const item = document.createElement('div');
+      item.className = 'flag-item';
+      item.innerHTML = `<span class="flag-icon">⚑</span><span>${escapeHtml(flag)}</span>`;
+      flagCard.body.appendChild(item);
+    });
+    container.appendChild(flagCard.card);
+  }
+
+  // Chief Complaint
+  const ccCard = makeCard('Chief Complaint');
+  if (data.chief_complaint) {
+    const cc = data.chief_complaint;
+    ccCard.body.innerHTML = `
+      <div class="brief-field">
+        <div class="brief-field-label">Statement</div>
+        <div class="brief-field-value">"${escapeHtml(cc.statement || '')}"</div>
+      </div>
+      <div class="brief-field">
+        <div class="brief-field-label">Onset of Complaint</div>
+        <div class="brief-field-value">${escapeHtml(cc.onset_of_complaint || '—')}</div>
+      </div>
+    `;
+  }
+  container.appendChild(ccCard.card);
+
+  // HPI
+  const hpiCard = makeCard('History of Present Illness (OLDCARTS)');
+  const hpiTable = document.createElement('table');
+  hpiTable.className = 'hpi-table';
+  const hpiMap = {
+    'onset': 'Onset',
+    'location': 'Location',
+    'duration': 'Duration',
+    'character': 'Character',
+    'aggravating_factors': 'Aggravating',
+    'alleviating_factors': 'Alleviating',
+    'radiation': 'Radiation',
+    'timing': 'Timing',
+    'severity': 'Severity',
+  };
+  if (data.hpi) {
+    for (const [key, label] of Object.entries(hpiMap)) {
+      const val = data.hpi[key];
+      const tr = document.createElement('tr');
+      const isNull = val === null || val === undefined || val === '';
+      tr.innerHTML = `
+        <td>${label}</td>
+        <td class="${isNull ? 'null-value' : ''}">${escapeHtml(isNull ? 'Not reported' : val)}</td>
+      `;
+      hpiTable.appendChild(tr);
+    }
+  }
+  hpiCard.body.appendChild(hpiTable);
+  container.appendChild(hpiCard.card);
+
+  // ROS
+  if (data.ros && Object.keys(data.ros).length > 0) {
+    const rosCard = makeCard('Review of Systems');
+    for (const [system, findings] of Object.entries(data.ros)) {
+      const sysDiv = document.createElement('div');
+      sysDiv.className = 'ros-system';
+      sysDiv.innerHTML = `<div class="ros-system-name">${escapeHtml(system.replace(/_/g, ' '))}</div>`;
+
+      const tagsDiv = document.createElement('div');
+      tagsDiv.className = 'ros-tags';
+
+      (findings.positive || []).forEach(s => {
+        const tag = document.createElement('span');
+        tag.className = 'ros-tag positive';
+        tag.textContent = s;
+        tagsDiv.appendChild(tag);
+      });
+
+      (findings.negative || []).forEach(s => {
+        const tag = document.createElement('span');
+        tag.className = 'ros-tag negative';
+        tag.textContent = '✗ ' + s;
+        tagsDiv.appendChild(tag);
+      });
+
+      if (tagsDiv.children.length === 0) {
+        tagsDiv.innerHTML = '<span style="font-size:12px;color:var(--text-muted)">No findings recorded</span>';
+      }
+
+      sysDiv.appendChild(tagsDiv);
+      rosCard.body.appendChild(sysDiv);
+    }
+    container.appendChild(rosCard.card);
+  }
+
+  // Clinical Narrative
+  if (data.clinical_narrative) {
+    const narCard = makeCard('Clinical Narrative');
+    const narDiv = document.createElement('div');
+    narDiv.className = 'narrative-text';
+    narDiv.textContent = data.clinical_narrative;
+    narCard.body.appendChild(narDiv);
+    container.appendChild(narCard.card);
+  }
+
+  // Raw JSON
+  const jsonDetails = document.createElement('details');
+  jsonDetails.innerHTML = `
+    <summary>Raw JSON</summary>
+    <div class="json-block">${escapeHtml(JSON.stringify(data, null, 2))}</div>
+  `;
+  container.appendChild(jsonDetails);
+
+  // Store for copy
+  container.dataset.briefJson = JSON.stringify(data);
+
+  // Scroll to brief
+  document.getElementById('rightPanelBody').scrollTop = 99999;
+}
+
+function renderBriefError(transcript) {
+  const container = document.getElementById('briefContent');
+  container.innerHTML = `
+    <div style="padding:16px;background:var(--red-dim);border:1px solid rgba(229,83,83,0.3);border-radius:var(--radius-sm);margin-bottom:16px;font-size:13px;color:var(--red)">
+      Brief generation failed. Raw transcript is available below.
+    </div>
+  `;
+  if (transcript && transcript.length > 0) {
+    const details = document.createElement('details');
+    details.setAttribute('open', '');
+    const text = transcript.map(t => `${t.role.toUpperCase()}: ${t.text}`).join('\n\n');
+    details.innerHTML = `
+      <summary>Full Transcript</summary>
+      <div class="json-block">${escapeHtml(text)}</div>
+    `;
+    container.appendChild(details);
+  }
+  document.getElementById('rightPanelBody').scrollTop = 99999;
+}
+
+function makeCard(title) {
+  const card = document.createElement('div');
+  card.className = 'brief-card';
+  card.innerHTML = `<div class="brief-card-header">${escapeHtml(title)}</div>`;
+  const body = document.createElement('div');
+  body.className = 'brief-card-body';
+  card.appendChild(body);
+  return { card, body };
+}
+
+/* ════════════════════════════════════════════
+   UI — Status
+═══════════════════════════════════════════ */
+function setStatus(type, text) {
+  const dot = document.getElementById('statusDot');
+  const txt = document.getElementById('statusText');
+  dot.className = 'status-dot ' + type;
+  txt.textContent = text;
+}
+
+function showWaveform(active) {
+  document.getElementById('waveform').className = 'waveform' + (active ? ' active' : '');
+}
+
+function showError(msg) {
+  const toast = document.getElementById('errorToast');
+  toast.textContent = msg;
+  toast.classList.add('visible');
+  setTimeout(() => toast.classList.remove('visible'), 6000);
+}
+
+/* ════════════════════════════════════════════
+   Brief actions
+═══════════════════════════════════════════ */
+function printBrief() {
+  window.print();
+}
+
+function copyBriefJson() {
+  const container = document.getElementById('briefContent');
+  const json = container.dataset.briefJson;
+  if (json) {
+    navigator.clipboard.writeText(json).then(() => {
+      showToastSuccess('JSON copied to clipboard');
+    });
+  }
+}
+
+function showToastSuccess(msg) {
+  const toast = document.getElementById('errorToast');
+  toast.style.background = 'rgba(76, 175, 128, 0.15)';
+  toast.style.borderColor = 'rgba(76, 175, 128, 0.4)';
+  toast.style.color = 'var(--green)';
+  toast.textContent = msg;
+  toast.classList.add('visible');
+  setTimeout(() => {
+    toast.classList.remove('visible');
+    toast.style.background = '';
+    toast.style.borderColor = '';
+    toast.style.color = '';
+  }, 3000);
+}
+
+/* ════════════════════════════════════════════
+   Utils
+═══════════════════════════════════════════ */
+function escapeHtml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+</script>
+</body>
+</html>
