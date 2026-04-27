@@ -1,23 +1,33 @@
 # Aria — AI Clinical Intake Agent
 
-Aria is a voice AI agent that conducts structured pre-visit medical intake interviews in a browser. The patient speaks naturally; Aria asks all the questions. When the call ends, a formatted clinical brief is generated automatically for the physician.
+Aria is a voice AI agent that conducts structured pre-visit medical intake calls with patients before they see their physician. Aria calls the patient, asks all the questions, and delivers a formatted clinical brief to the physician before the appointment — no manual note-taking, no intake forms.
 
-![Demo flow: Greeting → Chief Complaint → HPI → ROS → Brief](https://img.shields.io/badge/status-demo--ready-brightgreen) ![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue) ![Gemini Live 2.5 Flash](https://img.shields.io/badge/model-gemini--live--2.5--flash-orange)
+![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue) ![Gemini Live 2.5 Flash](https://img.shields.io/badge/model-gemini--live--2.5--flash-orange)
 
 ---
 
-## How it works
+## What it does
 
-The patient opens the web app and clicks **Start Session**. Aria greets them, asks for their name, asks what brings them in, and then systematically collects:
+Before a patient's appointment, Aria places an outbound call. The patient just speaks — Aria guides the entire conversation, collecting:
 
-1. **Chief Complaint** — patient's own words
-2. **History of Present Illness** — using the OLDCARTS framework (Onset, Location, Duration, Character, Aggravating factors, Alleviating factors, Radiation, Timing, Severity)
+1. **Chief Complaint** — reason for the visit in the patient's own words
+2. **History of Present Illness** — full OLDCARTS framework (Onset, Location, Duration, Character, Aggravating factors, Alleviating factors, Radiation, Timing, Severity)
 3. **Review of Systems** — targeted to the chief complaint (e.g. chest pain triggers cardiovascular, respiratory, GI, musculoskeletal, constitutional)
 4. **Closing** — confirms nothing was missed
 
-At the end, the physician sees a structured clinical brief: CC, full HPI table, ROS findings with pertinent negatives, a clinical narrative, and any flags.
+When the call ends, the physician receives a structured clinical brief: CC, full HPI table, ROS findings with pertinent negatives, a clinical narrative written in clinical documentation style, and any flags.
 
-**The patient never types anything — it's a real voice call in the browser.**
+---
+
+## Production vs. this demo
+
+| | Production | This demo |
+|---|---|---|
+| Patient interface | Outbound phone call (telephony integration) | Browser with microphone |
+| Trigger | Automated pre-appointment scheduling | Manual — click Start Session |
+| Delivery to physician | EHR / care coordination system | Rendered in the same browser window |
+
+The conversation logic, state machine, prompts, and brief generation are identical in both. The browser interface exists to demo the full call flow without needing telephony infrastructure.
 
 ---
 
@@ -25,10 +35,10 @@ At the end, the physician sees a structured clinical brief: CC, full HPI table, 
 
 | Layer | Technology |
 |---|---|
-| Voice (STT + LLM + TTS) | Gemini Live 2.5 Flash API — bidirectional WebSocket |
+| Voice (STT + LLM + TTS) | Gemini Live 2.5 Flash — bidirectional audio WebSocket |
 | Brief generation | Gemini 2.5 Flash REST with `response_schema` |
 | Backend | Python FastAPI + uvicorn |
-| Frontend | Vanilla JS — no framework, no build step |
+| Frontend (demo) | Vanilla JS — no framework, no build step |
 | Auth | Google service account |
 
 ---
@@ -36,20 +46,27 @@ At the end, the physician sees a structured clinical brief: CC, full HPI table, 
 ## Architecture
 
 ```
-Browser mic (PCM 16kHz) ──▶ FastAPI WebSocket ──▶ Gemini Live 2.5 Flash
-                                                         │
-                                                   audio + transcripts
-                                                         │
-Browser speakers (PCM 24kHz) ◀── FastAPI ◀──────────────┘
-                                     │
-                              after each turn:
-                              Gemini REST → extract fields → update state machine
-                                     │
-                              when DONE:
-                              Gemini REST → structured clinical brief → browser
+Patient phone / browser mic (PCM 16kHz)
+        │
+        ▼
+FastAPI WebSocket ──▶ Gemini Live 2.5 Flash
+                              │
+                        audio + transcripts
+                              │
+        ◀─────────────────────┘
+        │
+        ├── after each turn:
+        │     Gemini REST → extract filled fields → update state machine
+        │
+        └── when session ends:
+              Gemini REST → structured clinical brief → physician
 ```
 
-The Python state machine controls which phase the session is in. Gemini generates natural conversation within the current phase. Phase transitions happen when the state machine confirms the completion criteria are met — not by Gemini deciding.
+The Python state machine controls which phase the session is in. Gemini generates natural conversation within the current phase. Phase transitions are driven by the state machine confirming completion criteria — not by Gemini.
+
+```
+GREETING → CHIEF_COMPLAINT → HPI (OLDCARTS) → ROS → CLOSING → [brief]
+```
 
 ---
 
@@ -72,7 +89,7 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID \
   --role="roles/aiplatform.user"
 ```
 
-- A JSON key for that service account, saved as `service-account.json` in the project root
+- A JSON key for that service account saved as `service-account.json` in the project root
 
 ### Install
 
@@ -104,13 +121,11 @@ GOOGLE_APPLICATION_CREDENTIALS=service-account.json
 uvicorn main:app --reload --port 8000
 ```
 
-Open [http://localhost:8000/static/index.html](http://localhost:8000/static/index.html), click **Start Session**, and allow microphone access.
+Open [http://localhost:8000/static/index.html](http://localhost:8000/static/index.html), click **Start Session**, and allow microphone access to demo the call flow in the browser.
 
 ---
 
 ## Clinical brief output
-
-When the session ends, the UI renders a structured clinical note:
 
 ```json
 {
@@ -156,30 +171,23 @@ When the session ends, the UI renders a structured clinical note:
 ├── state_extractor.py   # Post-turn field extraction via Gemini REST
 ├── brief_generator.py   # Transcript → structured clinical brief
 ├── auth.py              # Service account credentials
-├── static/index.html    # Single-page UI
+├── static/index.html    # Browser demo interface
 ├── tests/               # 19 unit tests (no API calls)
-├── DEMO_SCRIPT.md       # Patient script for demo/testing
 └── .env.example
 ```
 
 ---
 
-## Running tests
+## Tests
 
 ```bash
 pytest tests/ -v
 ```
 
-All 19 tests cover state machine logic, phase transitions, OLDCARTS completion, ROS mapping, and CC classification — no API calls required.
+19 tests covering state machine logic, phase transitions, OLDCARTS completion, ROS mapping, and CC classification. No API calls required.
 
 ---
 
 ## Emergency handling
 
-If a patient describes a medical emergency (crushing chest pain with radiation, stroke symptoms, severe dyspnea at rest, uncontrolled bleeding), Aria immediately redirects: *"I'm concerned about what you're describing. Please call 911 or go to your nearest emergency room right now."*
-
----
-
-## Demo
-
-See `DEMO_SCRIPT.md` for a complete patient script (Michael Chen, 52, exertional chest pain) that walks through all phases and produces a clinically meaningful brief.
+If a patient describes a medical emergency during the call (crushing chest pain with radiation, stroke symptoms, severe dyspnea at rest, uncontrolled bleeding), Aria immediately says: *"I'm concerned about what you're describing. Please call 911 or go to your nearest emergency room right now. Do not wait for this appointment."*
