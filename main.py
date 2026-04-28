@@ -44,18 +44,14 @@ async def ws_session(websocket: WebSocket):
     try:
         creds = get_credentials()
     except FileNotFoundError as e:
-        await websocket.send_json({
-            'type': 'error',
-            'code': 'AUTH_MISSING',
-            'message': str(e),
-        })
+        await websocket.send_json({'type': 'error', 'code': 'AUTH_MISSING', 'message': str(e)})
         await websocket.close()
         return
 
     sm = IntakeStateMachine()
     gemini = GeminiLiveSession(sm, creds)
-    # Mutable flag shared between the receive loop and background extraction tasks
     brief_sent = [False]
+    stop_event = asyncio.Event()
 
     try:
         await gemini.start()
@@ -66,25 +62,40 @@ async def ws_session(websocket: WebSocket):
             """Forward browser mic PCM chunks to Gemini Live."""
             try:
                 async for message in websocket.iter_bytes():
-                    await gemini.send_audio(message)
+                    if stop_event.is_set():
+                        break
+                    try:
+                        await gemini.send_audio(message)
+                    except Exception as e:
+                        # Gemini connection dropped — stop forwarding audio
+                        logger.warning("Gemini send_audio failed, stopping: %s", e)
+                        stop_event.set()
+                        break
             except WebSocketDisconnect:
-                pass
+                stop_event.set()
 
         async def send_to_browser():
             """Stream Gemini responses to browser and trigger state management."""
-            async for chunk in gemini.receive():
-                try:
-                    await websocket.send_json(chunk)
-                except Exception:
-                    break
+            try:
+                async for chunk in gemini.receive():
+                    if stop_event.is_set():
+                        break
+                    try:
+                        await websocket.send_json(chunk)
+                    except Exception:
+                        stop_event.set()
+                        break
 
-                if chunk['type'] == 'error' and chunk.get('code') == 'SESSION_DROPPED':
-                    break
+                    if chunk['type'] == 'error':
+                        stop_event.set()
+                        break
 
-                if chunk['type'] == 'turn_complete':
-                    asyncio.create_task(
-                        _extract_and_advance(websocket, sm, creds, brief_sent)
-                    )
+                    if chunk['type'] == 'turn_complete':
+                        asyncio.create_task(
+                            _extract_and_advance(websocket, sm, creds, brief_sent)
+                        )
+            finally:
+                stop_event.set()
 
         await asyncio.gather(receive_from_browser(), send_to_browser())
 
@@ -93,11 +104,7 @@ async def ws_session(websocket: WebSocket):
     except Exception as e:
         logger.exception("Unhandled session error")
         try:
-            await websocket.send_json({
-                'type': 'error',
-                'code': 'SESSION_ERROR',
-                'message': str(e),
-            })
+            await websocket.send_json({'type': 'error', 'code': 'SESSION_ERROR', 'message': str(e)})
         except Exception:
             pass
     finally:
@@ -113,7 +120,7 @@ async def _extract_and_advance(
 ):
     """
     Background task: extract state from transcript, advance phase if criteria met,
-    and trigger brief generation when the session reaches DONE.
+    and trigger brief generation when session reaches DONE.
     """
     try:
         prev_phase = sm.phase
@@ -145,11 +152,7 @@ async def _extract_and_advance(
     except Exception as e:
         logger.exception("Error in state extraction task")
         try:
-            await websocket.send_json({
-                'type': 'error',
-                'code': 'STATE_ERROR',
-                'message': f"State tracking error: {e}",
-            })
+            await websocket.send_json({'type': 'error', 'code': 'STATE_ERROR', 'message': str(e)})
         except Exception:
             pass
 
