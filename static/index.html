@@ -870,8 +870,11 @@ async function startSession() {
 
   ws.onclose = () => {
     if (sessionActive) {
+      // Unexpected close (user hung up or network drop)
       setStatus('idle', 'Session ended');
     }
+    // If session_complete was received first, sessionActive is already false
+    // and the status is already "Session complete — brief ready"
     teardownMic();
     sessionActive = false;
     document.getElementById('btnStart').disabled = false;
@@ -1014,6 +1017,13 @@ function handleMessage(event) {
     case 'brief_error':
       showBriefGenerating(false);
       renderBriefError(msg.transcript);
+      break;
+
+    case 'session_complete':
+      // Mark done before ws.onclose fires so status isn't overwritten
+      sessionActive = false;
+      setStatus('idle', 'Session complete — brief ready');
+      showWaveform(false);
       break;
 
     case 'error':

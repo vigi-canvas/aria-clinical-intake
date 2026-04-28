@@ -52,7 +52,8 @@ class IntakeStateMachine:
         self.transcript: list[dict] = []
 
     def hpi_complete(self) -> bool:
-        return all(v is not None for v in self.hpi_fields.values())
+        filled = sum(1 for v in self.hpi_fields.values() if v is not None)
+        return filled >= 8  # 8 of 9 OLDCARTS fields sufficient to advance
 
     def ros_complete(self) -> bool:
         return len(self.ros_systems) > 0 and all(s in self.ros_data for s in self.ros_systems)

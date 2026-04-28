@@ -59,9 +59,9 @@ PHASE 3 — HISTORY OF PRESENT ILLNESS (OLDCARTS)
 Collect these 9 fields one at a time through natural conversation.
 Adapt wording based on what the patient has already told you — do not recite them as a list.
 
-  onset        — When did this start? Sudden or gradual?
+  onset        — When did this start? (e.g. "3 days ago", "last week", "gradually over a month")
   location     — Where exactly do you feel it?
-  duration     — How long does each episode last?
+  duration     — How long does each individual episode last? (e.g. "a few minutes", "several hours", "it's constant")
   character    — How would you describe it? (sharp, dull, burning, pressure, aching)
   aggravating  — What makes it worse?
   alleviating  — What makes it better? Have you tried anything for relief?

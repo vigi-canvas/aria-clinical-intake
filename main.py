@@ -107,7 +107,7 @@ async def ws_session(websocket: WebSocket):
 
                     if chunk['type'] == 'turn_complete':
                         asyncio.create_task(
-                            _extract_and_advance(ws_send, sm, creds, brief_sent)
+                            _extract_and_advance(ws_send, sm, creds, brief_sent, stop_event)
                         )
             finally:
                 stop_event.set()
@@ -133,6 +133,7 @@ async def _extract_and_advance(
     sm: IntakeStateMachine,
     creds,
     brief_sent: list,
+    stop_event: asyncio.Event,
 ):
     """
     Background task: extract state from transcript after each agent turn,
@@ -148,6 +149,12 @@ async def _extract_and_advance(
             logger.info("State updated: %s", changed)
 
         did_advance = _check_and_advance_phase(sm)
+
+        # If Aria delivered the closing farewell, force-advance to DONE
+        if data.get('closing_complete') and sm.phase != 'DONE':
+            while sm.phase != 'DONE':
+                sm.advance_phase()
+            did_advance = True
 
         if did_advance or changed:
             await ws_send({'type': 'phase', 'phase': sm.phase})
@@ -165,6 +172,8 @@ async def _extract_and_advance(
         if sm.phase == 'DONE' and not brief_sent[0]:
             brief_sent[0] = True
             await _send_brief(ws_send, sm, creds)
+            await ws_send({'type': 'session_complete'})
+            stop_event.set()
 
     except Exception as e:
         logger.exception("Error in state extraction task")

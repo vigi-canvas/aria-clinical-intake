@@ -63,8 +63,12 @@ Rules:
 - patient_name: null if not yet given; the patient's name if they have introduced themselves.
 - chief_complaint: null if not stated; use patient's own words if stated.
 - hpi_updates: null for each field not yet discussed. Use "N/A" only if the patient explicitly said they don't know or it doesn't apply.
+  IMPORTANT field distinctions:
+  • onset — WHEN the problem started (e.g. "3 days ago", "last Monday", "gradually over 2 weeks")
+  • duration — HOW LONG each individual episode lasts (e.g. "5 minutes", "a few hours", "constant")
+  These are different questions. Do not confuse them or leave duration null if the patient described how long episodes last.
 - ros_updates: only include systems where questions were ASKED AND ANSWERED. Record positive findings and pertinent negatives.
-- closing_complete: true only if the agent has delivered a clear farewell/closing message.
+- closing_complete: true only if the agent has delivered a clear farewell/closing message (e.g. "We're all set", "Thank you for your time", "Take care", "See you soon").
 
 Transcript:
 {transcript}
