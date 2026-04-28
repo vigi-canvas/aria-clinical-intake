@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 PROJECT_ID = os.environ.get('GOOGLE_PROJECT_ID', '')
 LOCATION = os.environ.get('GOOGLE_LOCATION', 'us-central1')
-LIVE_MODEL = os.environ.get('GEMINI_LIVE_MODEL', 'gemini-live-2.5-flash-preview')
+LIVE_MODEL = os.environ.get('GEMINI_LIVE_MODEL', 'gemini-2.0-flash-live-preview-04-09')
 
 
 class GeminiLiveSession:
