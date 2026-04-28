@@ -56,7 +56,10 @@ class IntakeStateMachine:
         return filled >= 8  # 8 of 9 OLDCARTS fields sufficient to advance
 
     def ros_complete(self) -> bool:
-        return len(self.ros_systems) > 0 and all(s in self.ros_data for s in self.ros_systems)
+        if not self.ros_systems:
+            return False
+        covered = sum(1 for s in self.ros_systems if s in self.ros_data)
+        return covered >= min(3, len(self.ros_systems))
 
     def advance_phase(self):
         order = ['GREETING', 'CHIEF_COMPLAINT', 'HPI', 'ROS', 'CLOSING', 'DONE']
