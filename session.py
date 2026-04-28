@@ -1,5 +1,5 @@
 """
-Wraps the Gemini Live 2.5 Flash API WebSocket session.
+Wraps the Gemini Live API WebSocket session.
 One instance per connected browser client.
 """
 import base64
@@ -15,7 +15,7 @@ from state_machine import IntakeStateMachine
 logger = logging.getLogger(__name__)
 
 PROJECT_ID = os.environ.get('GOOGLE_PROJECT_ID', '')
-LOCATION = os.environ.get('GOOGLE_LOCATION', 'us-central1')
+LOCATION   = os.environ.get('GOOGLE_LOCATION', 'us-central1')
 LIVE_MODEL = os.environ.get('GEMINI_LIVE_MODEL', 'gemini-2.0-flash-live-preview-04-09')
 
 
@@ -50,70 +50,95 @@ class GeminiLiveSession:
             config=config,
         )
         self._session = await self._context_manager.__aenter__()
-        logger.info("Gemini Live session started — model=%s phase=%s", LIVE_MODEL, self.sm.phase)
+        logger.info("Gemini Live session started — model=%s", LIVE_MODEL)
+
+    async def trigger_greeting(self):
+        """
+        Send an initial text turn so Aria speaks first without waiting for
+        patient audio. The system prompt instructs her to greet the patient,
+        so this single trigger kicks off the full conversation flow.
+        """
+        await self._session.send_client_content(
+            turns=[types.Content(
+                role='user',
+                parts=[types.Part(text='Hello')],
+            )],
+            turn_complete=True,
+        )
 
     async def send_audio(self, pcm_bytes: bytes):
-        """Send raw PCM 16kHz mono audio from browser mic."""
+        """Send raw PCM 16kHz mono audio from the browser mic."""
         if not self._session:
             raise RuntimeError("Session not started")
-        await self._session.send(
-            input=types.LiveClientRealtimeInput(
-                media_chunks=[types.Blob(
-                    mime_type='audio/pcm;rate=16000',
-                    data=pcm_bytes,
-                )]
+        await self._session.send_realtime_input(
+            audio=types.Blob(
+                mime_type='audio/pcm;rate=16000',
+                data=pcm_bytes,
             )
         )
 
     async def receive(self):
         """
-        Async generator yielding event dicts consumed by main.py.
-        Transcripts are buffered and emitted as a single message per turn.
+        Async generator for the full multi-turn conversation.
 
-          {'type': 'audio', 'data': '<base64 PCM 24kHz>'}
+        The SDK's session.receive() exits after ONE turn_complete — this outer
+        loop re-enters it for each subsequent turn, keeping the session alive
+        for the entire intake call.
+
+        Yields:
+          {'type': 'audio',      'data': '<base64 PCM 24kHz>'}
           {'type': 'transcript', 'role': 'agent'|'patient', 'text': '...'}
           {'type': 'turn_complete'}
-          {'type': 'error', 'code': 'SESSION_DROPPED', 'message': '...'}
+          {'type': 'error',      'code': 'SESSION_DROPPED', 'message': '...'}
         """
-        agent_buf = []   # accumulates agent output_transcription chunks within a turn
-        patient_buf = [] # accumulates patient input_transcription chunks within a turn
+        agent_buf:   list[str] = []
+        patient_buf: list[str] = []
 
         try:
-            async for response in self._session.receive():
-                # Audio bytes — stream immediately for low-latency playback
-                if response.data:
-                    yield {
-                        'type': 'audio',
-                        'data': base64.b64encode(response.data).decode(),
-                    }
+            while True:
+                received_anything = False
 
-                sc = response.server_content
-                if sc:
-                    # Buffer patient speech transcription chunks
-                    if sc.input_transcription and sc.input_transcription.text:
-                        patient_buf.append(sc.input_transcription.text)
+                async for response in self._session.receive():
+                    received_anything = True
 
-                    # Buffer agent output transcription chunks
-                    if sc.output_transcription and sc.output_transcription.text:
-                        agent_buf.append(sc.output_transcription.text)
+                    # Inline PCM audio — stream immediately for low latency
+                    if response.data:
+                        yield {
+                            'type': 'audio',
+                            'data': base64.b64encode(response.data).decode(),
+                        }
 
-                    if sc.turn_complete:
-                        # Emit patient transcript as a single message
-                        patient_text = ''.join(patient_buf).strip()
-                        if patient_text:
-                            self.sm.append_transcript('patient', patient_text)
-                            yield {'type': 'transcript', 'role': 'patient', 'text': patient_text}
+                    sc = response.server_content
+                    if sc:
+                        # Accumulate patient speech across chunks
+                        if sc.input_transcription and sc.input_transcription.text:
+                            patient_buf.append(sc.input_transcription.text)
 
-                        # Emit agent transcript as a single message
-                        agent_text = ''.join(agent_buf).strip()
-                        if agent_text:
-                            self.sm.append_transcript('agent', agent_text)
-                            yield {'type': 'transcript', 'role': 'agent', 'text': agent_text}
+                        # Accumulate agent speech across chunks
+                        if sc.output_transcription and sc.output_transcription.text:
+                            agent_buf.append(sc.output_transcription.text)
 
-                        agent_buf.clear()
-                        patient_buf.clear()
+                        if sc.turn_complete:
+                            # Emit each side as one complete message per turn
+                            patient_text = ''.join(patient_buf).strip()
+                            if patient_text:
+                                self.sm.append_transcript('patient', patient_text)
+                                yield {'type': 'transcript', 'role': 'patient', 'text': patient_text}
 
-                        yield {'type': 'turn_complete'}
+                            agent_text = ''.join(agent_buf).strip()
+                            if agent_text:
+                                self.sm.append_transcript('agent', agent_text)
+                                yield {'type': 'transcript', 'role': 'agent', 'text': agent_text}
+
+                            agent_buf.clear()
+                            patient_buf.clear()
+                            yield {'type': 'turn_complete'}
+
+                if not received_anything:
+                    # WebSocket closed cleanly — session over
+                    logger.info("Gemini Live session closed by server")
+                    break
+                # One turn complete — loop back to receive the next turn
 
         except Exception as e:
             logger.exception("Gemini Live session error")

@@ -48,18 +48,35 @@ async def ws_session(websocket: WebSocket):
         await websocket.close()
         return
 
-    sm = IntakeStateMachine()
+    sm     = IntakeStateMachine()
     gemini = GeminiLiveSession(sm, creds)
+
+    # Mutable flags shared between tasks
     brief_sent = [False]
     stop_event = asyncio.Event()
 
+    # Lock so concurrent tasks never interleave WebSocket frames
+    ws_lock = asyncio.Lock()
+
+    async def ws_send(data: dict):
+        """Thread-safe serialised WebSocket send."""
+        async with ws_lock:
+            try:
+                await websocket.send_json(data)
+            except Exception:
+                stop_event.set()
+
     try:
         await gemini.start()
-        await websocket.send_json({'type': 'phase', 'phase': sm.phase})
-        await websocket.send_json({'type': 'connected'})
+        await ws_send({'type': 'phase', 'phase': sm.phase})
+        await ws_send({'type': 'connected'})
+
+        # Trigger Aria to speak first — without this the session waits for
+        # patient audio before saying anything.
+        await gemini.trigger_greeting()
 
         async def receive_from_browser():
-            """Forward browser mic PCM chunks to Gemini Live."""
+            """Forward browser mic PCM to Gemini Live."""
             try:
                 async for message in websocket.iter_bytes():
                     if stop_event.is_set():
@@ -67,32 +84,30 @@ async def ws_session(websocket: WebSocket):
                     try:
                         await gemini.send_audio(message)
                     except Exception as e:
-                        # Gemini connection dropped — stop forwarding audio
-                        logger.warning("Gemini send_audio failed, stopping: %s", e)
+                        logger.warning("send_audio failed: %s", e)
                         stop_event.set()
                         break
             except WebSocketDisconnect:
                 stop_event.set()
 
         async def send_to_browser():
-            """Stream Gemini responses to browser and trigger state management."""
+            """Stream Gemini responses to the browser and manage state."""
             try:
                 async for chunk in gemini.receive():
                     if stop_event.is_set():
                         break
-                    try:
-                        await websocket.send_json(chunk)
-                    except Exception:
-                        stop_event.set()
-                        break
+
+                    await ws_send(chunk)
 
                     if chunk['type'] == 'error':
+                        logger.error("Gemini error: %s — %s",
+                                     chunk.get('code'), chunk.get('message'))
                         stop_event.set()
                         break
 
                     if chunk['type'] == 'turn_complete':
                         asyncio.create_task(
-                            _extract_and_advance(websocket, sm, creds, brief_sent)
+                            _extract_and_advance(ws_send, sm, creds, brief_sent)
                         )
             finally:
                 stop_event.set()
@@ -100,32 +115,34 @@ async def ws_session(websocket: WebSocket):
         await asyncio.gather(receive_from_browser(), send_to_browser())
 
     except WebSocketDisconnect:
-        logger.info("WebSocket disconnected cleanly")
+        logger.info("Browser WebSocket disconnected cleanly")
     except Exception as e:
         logger.exception("Unhandled session error")
         try:
-            await websocket.send_json({'type': 'error', 'code': 'SESSION_ERROR', 'message': str(e)})
+            await ws_send({'type': 'error', 'code': 'SESSION_ERROR', 'message': str(e)})
         except Exception:
             pass
     finally:
         await gemini.close()
-        logger.info("Session cleaned up (phase=%s, transcript_len=%d)", sm.phase, len(sm.transcript))
+        logger.info("Session cleaned up — phase=%s transcript_len=%d",
+                    sm.phase, len(sm.transcript))
 
 
 async def _extract_and_advance(
-    websocket: WebSocket,
+    ws_send,
     sm: IntakeStateMachine,
     creds,
     brief_sent: list,
 ):
     """
-    Background task: extract state from transcript, advance phase if criteria met,
-    and trigger brief generation when session reaches DONE.
+    Background task: extract state from transcript after each agent turn,
+    advance the phase when criteria are met, and trigger brief generation
+    when the session reaches DONE.
     """
     try:
         prev_phase = sm.phase
-        data = await extract_intake_state(sm, creds)
-        changed = apply_extraction(sm, data)
+        data       = await extract_intake_state(sm, creds)
+        changed    = apply_extraction(sm, data)
 
         if changed:
             logger.info("State updated: %s", changed)
@@ -133,8 +150,8 @@ async def _extract_and_advance(
         did_advance = _check_and_advance_phase(sm)
 
         if did_advance or changed:
-            await websocket.send_json({'type': 'phase', 'phase': sm.phase})
-            await websocket.send_json({
+            await ws_send({'type': 'phase', 'phase': sm.phase})
+            await ws_send({
                 'type': 'state_update',
                 'patient_name': sm.patient_name,
                 'chief_complaint': sm.chief_complaint,
@@ -147,14 +164,11 @@ async def _extract_and_advance(
 
         if sm.phase == 'DONE' and not brief_sent[0]:
             brief_sent[0] = True
-            await _send_brief(websocket, sm, creds)
+            await _send_brief(ws_send, sm, creds)
 
     except Exception as e:
         logger.exception("Error in state extraction task")
-        try:
-            await websocket.send_json({'type': 'error', 'code': 'STATE_ERROR', 'message': str(e)})
-        except Exception:
-            pass
+        await ws_send({'type': 'error', 'code': 'STATE_ERROR', 'message': str(e)})
 
 
 def _check_and_advance_phase(sm: IntakeStateMachine) -> bool:
@@ -175,23 +189,23 @@ def _check_and_advance_phase(sm: IntakeStateMachine) -> bool:
     return sm.phase != prev
 
 
-async def _send_brief(websocket: WebSocket, sm: IntakeStateMachine, creds):
-    """Generate and send the clinical brief, with transcript fallback on failure."""
+async def _send_brief(ws_send, sm: IntakeStateMachine, creds):
+    """Generate and send the clinical brief with transcript fallback on failure."""
     try:
-        await websocket.send_json({'type': 'brief_generating'})
+        await ws_send({'type': 'brief_generating'})
         brief = await generate_brief(sm.transcript, creds)
-        await websocket.send_json({'type': 'brief', 'data': brief})
+        await ws_send({'type': 'brief', 'data': brief})
         logger.info("Clinical brief sent successfully")
     except ValueError as e:
         logger.error("Brief generation failed: %s", e)
-        await websocket.send_json({
+        await ws_send({
             'type': 'brief_error',
             'message': str(e),
             'transcript': sm.transcript,
         })
     except Exception as e:
         logger.exception("Unexpected error generating brief")
-        await websocket.send_json({
+        await ws_send({
             'type': 'brief_error',
             'message': f"Brief generation failed: {e}",
             'transcript': sm.transcript,
