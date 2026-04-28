@@ -17,38 +17,41 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# JSON Schema for structured state extraction
+# Vertex AI schema — uppercase types, nullable:True instead of ['string','null']
+_NULLABLE_STRING = {'type': 'STRING', 'nullable': True}
+_STRING_ARRAY = {'type': 'ARRAY', 'items': {'type': 'STRING'}}
+
 EXTRACTION_SCHEMA = {
-    'type': 'object',
+    'type': 'OBJECT',
     'properties': {
-        'patient_name': {'type': ['string', 'null']},
-        'chief_complaint': {'type': ['string', 'null']},
+        'patient_name':    _NULLABLE_STRING,
+        'chief_complaint': _NULLABLE_STRING,
         'hpi_updates': {
-            'type': 'object',
+            'type': 'OBJECT',
             'properties': {
-                'onset':       {'type': ['string', 'null']},
-                'location':    {'type': ['string', 'null']},
-                'duration':    {'type': ['string', 'null']},
-                'character':   {'type': ['string', 'null']},
-                'aggravating': {'type': ['string', 'null']},
-                'alleviating': {'type': ['string', 'null']},
-                'radiation':   {'type': ['string', 'null']},
-                'timing':      {'type': ['string', 'null']},
-                'severity':    {'type': ['string', 'null']},
+                'onset':       _NULLABLE_STRING,
+                'location':    _NULLABLE_STRING,
+                'duration':    _NULLABLE_STRING,
+                'character':   _NULLABLE_STRING,
+                'aggravating': _NULLABLE_STRING,
+                'alleviating': _NULLABLE_STRING,
+                'radiation':   _NULLABLE_STRING,
+                'timing':      _NULLABLE_STRING,
+                'severity':    _NULLABLE_STRING,
             },
         },
         'ros_updates': {
-            'type': 'object',
+            'type': 'OBJECT',
             'additionalProperties': {
-                'type': 'object',
+                'type': 'OBJECT',
                 'properties': {
-                    'positive': {'type': 'array', 'items': {'type': 'string'}},
-                    'negative': {'type': 'array', 'items': {'type': 'string'}},
+                    'positive': _STRING_ARRAY,
+                    'negative': _STRING_ARRAY,
                 },
                 'required': ['positive', 'negative'],
             },
         },
-        'closing_complete': {'type': 'boolean'},
+        'closing_complete': {'type': 'BOOLEAN'},
     },
     'required': ['patient_name', 'chief_complaint', 'hpi_updates', 'ros_updates', 'closing_complete'],
 }
@@ -57,10 +60,10 @@ EXTRACTION_PROMPT = """You are a clinical intake state extractor.
 Given a patient intake conversation transcript, extract structured information from what has been established.
 
 Rules:
-- patient_name: null if not yet given; string if patient has introduced themselves.
+- patient_name: null if not yet given; the patient's name if they have introduced themselves.
 - chief_complaint: null if not stated; use patient's own words if stated.
-- hpi_updates: null for each field not yet discussed. "N/A" only if patient explicitly said they don't know or it doesn't apply.
-- ros_updates: only include systems where questions were ASKED AND ANSWERED. Record all positive findings and pertinent negatives.
+- hpi_updates: null for each field not yet discussed. Use "N/A" only if the patient explicitly said they don't know or it doesn't apply.
+- ros_updates: only include systems where questions were ASKED AND ANSWERED. Record positive findings and pertinent negatives.
 - closing_complete: true only if the agent has delivered a clear farewell/closing message.
 
 Transcript:
@@ -76,7 +79,6 @@ async def extract_intake_state(sm: 'IntakeStateMachine', credentials) -> dict:
     if not sm.transcript:
         return {}
 
-    # Only pass recent context — last 40 turns covers even long sessions
     transcript_text = '\n'.join(
         f"{t['role'].upper()}: {t['text']}" for t in sm.transcript[-40:]
     )
@@ -91,7 +93,7 @@ async def extract_intake_state(sm: 'IntakeStateMachine', credentials) -> dict:
 
     try:
         response = await client.aio.models.generate_content(
-            model=os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash-preview-05-20'),
+            model=os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash'),
             contents=prompt,
             config=types.GenerateContentConfig(
                 response_mime_type='application/json',

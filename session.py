@@ -2,7 +2,6 @@
 Wraps the Gemini Live 2.5 Flash API WebSocket session.
 One instance per connected browser client.
 """
-import asyncio
 import base64
 import logging
 import os
@@ -68,46 +67,52 @@ class GeminiLiveSession:
 
     async def receive(self):
         """
-        Async generator yielding event dicts consumed by main.py:
+        Async generator yielding event dicts consumed by main.py.
+        Transcripts are buffered and emitted as a single message per turn.
+
           {'type': 'audio', 'data': '<base64 PCM 24kHz>'}
           {'type': 'transcript', 'role': 'agent'|'patient', 'text': '...'}
           {'type': 'turn_complete'}
           {'type': 'error', 'code': 'SESSION_DROPPED', 'message': '...'}
         """
+        agent_buf = []   # accumulates agent output_transcription chunks within a turn
+        patient_buf = [] # accumulates patient input_transcription chunks within a turn
+
         try:
             async for response in self._session.receive():
-                # Inline PCM audio bytes from agent
+                # Audio bytes — stream immediately for low-latency playback
                 if response.data:
                     yield {
                         'type': 'audio',
                         'data': base64.b64encode(response.data).decode(),
                     }
 
-                # Agent text (when response_modalities includes TEXT)
-                if response.text:
-                    self.sm.append_transcript('agent', response.text)
-                    yield {'type': 'transcript', 'role': 'agent', 'text': response.text}
-
                 sc = response.server_content
                 if sc:
-                    # Patient speech transcription
+                    # Buffer patient speech transcription chunks
                     if sc.input_transcription and sc.input_transcription.text:
-                        text = sc.input_transcription.text.strip()
-                        if text:
-                            self.sm.append_transcript('patient', text)
-                            yield {'type': 'transcript', 'role': 'patient', 'text': text}
+                        patient_buf.append(sc.input_transcription.text)
 
-                    # Agent speech transcription (when audio-only response)
+                    # Buffer agent output transcription chunks
                     if sc.output_transcription and sc.output_transcription.text:
-                        text = sc.output_transcription.text.strip()
-                        if text:
-                            # Deduplicate against recent transcript entry
-                            recent = self.sm.transcript[-1] if self.sm.transcript else None
-                            if not recent or recent['role'] != 'agent' or recent['text'] != text:
-                                self.sm.append_transcript('agent', text)
-                                yield {'type': 'transcript', 'role': 'agent', 'text': text}
+                        agent_buf.append(sc.output_transcription.text)
 
                     if sc.turn_complete:
+                        # Emit patient transcript as a single message
+                        patient_text = ''.join(patient_buf).strip()
+                        if patient_text:
+                            self.sm.append_transcript('patient', patient_text)
+                            yield {'type': 'transcript', 'role': 'patient', 'text': patient_text}
+
+                        # Emit agent transcript as a single message
+                        agent_text = ''.join(agent_buf).strip()
+                        if agent_text:
+                            self.sm.append_transcript('agent', agent_text)
+                            yield {'type': 'transcript', 'role': 'agent', 'text': agent_text}
+
+                        agent_buf.clear()
+                        patient_buf.clear()
+
                         yield {'type': 'turn_complete'}
 
         except Exception as e:

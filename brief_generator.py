@@ -2,6 +2,7 @@
 Generates a structured clinical brief from the session transcript using Gemini REST.
 Uses response_schema for guaranteed JSON structure.
 """
+import json
 import logging
 import os
 
@@ -10,46 +11,48 @@ from google.genai import types
 
 logger = logging.getLogger(__name__)
 
-# JSON Schema for structured brief output
+_NULLABLE_STRING = {'type': 'STRING', 'nullable': True}
+_STRING_ARRAY = {'type': 'ARRAY', 'items': {'type': 'STRING'}}
+
 BRIEF_SCHEMA = {
-    'type': 'object',
+    'type': 'OBJECT',
     'properties': {
-        'patient_name': {'type': 'string'},
+        'patient_name': {'type': 'STRING'},
         'chief_complaint': {
-            'type': 'object',
+            'type': 'OBJECT',
             'properties': {
-                'statement': {'type': 'string'},
-                'onset_of_complaint': {'type': 'string'},
+                'statement':           {'type': 'STRING'},
+                'onset_of_complaint':  {'type': 'STRING'},
             },
             'required': ['statement', 'onset_of_complaint'],
         },
         'hpi': {
-            'type': 'object',
+            'type': 'OBJECT',
             'properties': {
-                'onset':              {'type': ['string', 'null']},
-                'location':           {'type': ['string', 'null']},
-                'duration':           {'type': ['string', 'null']},
-                'character':          {'type': ['string', 'null']},
-                'aggravating_factors':{'type': ['string', 'null']},
-                'alleviating_factors':{'type': ['string', 'null']},
-                'radiation':          {'type': ['string', 'null']},
-                'timing':             {'type': ['string', 'null']},
-                'severity':           {'type': ['string', 'null']},
+                'onset':               _NULLABLE_STRING,
+                'location':            _NULLABLE_STRING,
+                'duration':            _NULLABLE_STRING,
+                'character':           _NULLABLE_STRING,
+                'aggravating_factors': _NULLABLE_STRING,
+                'alleviating_factors': _NULLABLE_STRING,
+                'radiation':           _NULLABLE_STRING,
+                'timing':              _NULLABLE_STRING,
+                'severity':            _NULLABLE_STRING,
             },
         },
         'ros': {
-            'type': 'object',
+            'type': 'OBJECT',
             'additionalProperties': {
-                'type': 'object',
+                'type': 'OBJECT',
                 'properties': {
-                    'positive': {'type': 'array', 'items': {'type': 'string'}},
-                    'negative': {'type': 'array', 'items': {'type': 'string'}},
+                    'positive': _STRING_ARRAY,
+                    'negative': _STRING_ARRAY,
                 },
                 'required': ['positive', 'negative'],
             },
         },
-        'clinical_narrative': {'type': 'string'},
-        'flags': {'type': 'array', 'items': {'type': 'string'}},
+        'clinical_narrative': {'type': 'STRING'},
+        'flags': _STRING_ARRAY,
     },
     'required': ['patient_name', 'chief_complaint', 'hpi', 'ros', 'clinical_narrative', 'flags'],
 }
@@ -62,8 +65,8 @@ Instructions:
 - chief_complaint.statement: patient's own words for their main concern.
 - chief_complaint.onset_of_complaint: how long they've had this problem overall.
 - hpi: fill each OLDCARTS field from the conversation; use null if not discussed.
-- ros: include only systems that were actually reviewed; record both positive findings and pertinent negatives.
-- clinical_narrative: 2–3 sentence summary in clinical documentation style (use clinical terms: exertional dyspnea, pleuritic chest pain, etc.). Include chief complaint, key HPI findings, and notable ROS positives/negatives.
+- ros: include only systems that were actually reviewed; record positive findings and pertinent negatives.
+- clinical_narrative: 2-3 sentence summary in clinical documentation style using clinical terms (exertional dyspnea, pleuritic chest pain, etc). Include chief complaint, key HPI findings, and notable ROS positives/negatives.
 - flags: list any concerning symptoms, incomplete data, or items needing clinician follow-up. Empty list if none.
 
 Transcript:
@@ -92,7 +95,7 @@ async def generate_brief(transcript: list[dict], credentials) -> dict:
     )
 
     response = await client.aio.models.generate_content(
-        model=os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash-preview-05-20'),
+        model=os.environ.get('GEMINI_MODEL', 'gemini-2.5-flash'),
         contents=prompt,
         config=types.GenerateContentConfig(
             response_mime_type='application/json',
@@ -101,7 +104,6 @@ async def generate_brief(transcript: list[dict], credentials) -> dict:
         ),
     )
 
-    import json
     try:
         return json.loads(response.text)
     except (json.JSONDecodeError, AttributeError) as e:
